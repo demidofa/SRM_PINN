@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Тренажер: цикл преобразования энергии в вентильно-индукторном двигателе</title>
+<style>
+:root{--bg:#ffffff;--fg:#1c1c1c;--mut:#5f6368;--line:#d7dbe0;--card:#f5f7fa;--c1:#1f4e79;--c2:#c0504d;--c3:#4f8a3c;--ok:#2e7d32;--bad:#b3261e;--grid:#e6e9ee}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15181c;--fg:#e8eaed;--mut:#9aa0a6;--line:#3a3f45;--card:#1e2227;--c1:#7fb0e0;--c2:#e8908c;--c3:#8fcf7a;--ok:#81c995;--bad:#f28b82;--grid:#2a2f35}}
+:root[data-theme="dark"]{--bg:#15181c;--fg:#e8eaed;--mut:#9aa0a6;--line:#3a3f45;--card:#1e2227;--c1:#7fb0e0;--c2:#e8908c;--c3:#8fcf7a;--ok:#81c995;--bad:#f28b82;--grid:#2a2f35}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 "Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.35rem;margin:0 0 4px}
+.sub{color:var(--mut);margin:0 0 18px;max-width:820px}
+.grid{display:grid;grid-template-columns:300px 1fr;gap:18px}
+@media (max-width:820px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+label{display:block;font-size:.88rem;margin:10px 0 2px}
+label b{float:right;font-weight:600}
+input[type=range]{width:100%}
+.plots{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-content:start}
+@media (max-width:620px){.plots{grid-template-columns:1fr}}
+canvas{width:100%;height:260px;display:block;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+.wide{grid-column:1/-1}
+table{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:10px}
+td{padding:3px 0;border-bottom:1px solid var(--line)}td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+.task{margin-top:14px;font-size:.9rem}
+.st{font-weight:600}.ok{color:var(--ok)}.bad{color:var(--bad)}
+.note{color:var(--mut);font-size:.82rem;margin-top:14px}
+select{width:100%;padding:4px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px}
+</style>
+</head>
+<body>
+<main>
+<h1>Цикл преобразования энергии в вентильно-индукторном двигателе</h1>
+<p class="sub">Интерактивный тренажер дисциплины «Электромоторы». Меняйте скорость и углы коммутации и наблюдайте, как меняется траектория фазы на плоскости «ток — потокосцепление». Площадь, охваченная траекторией, равна энергии, преобразованной за один рабочий ход; пунктиром показаны кривые намагничивания в согласованном и рассогласованном положениях.</p>
+<div class="grid">
+<div class="card">
+<label>Скорость, об/мин <b id="v_rpm"></b></label><input id="rpm" type="range" min="100" max="5000" step="50" value="600">
+<label>Угол включения, эл. град <b id="v_on"></b></label><input id="on" type="range" min="-60" max="120" step="2.5" value="10">
+<label>Угол отключения, эл. град <b id="v_off"></b></label><input id="off" type="range" min="60" max="200" step="2.5" value="150">
+<label>Задание тока, А <b id="v_iref"></b></label><input id="iref" type="range" min="2" max="30" step="0.5" value="15">
+<label>Ширина петли гистерезиса, А <b id="v_band"></b></label><input id="band" type="range" min="0.2" max="5" step="0.1" value="0.8">
+<label>Способ ограничения тока</label>
+<select id="soft"><option value="1">мягкий (нулевое напряжение)</option><option value="0">жесткий (обратное напряжение)</option></select>
+<table>
+<tr><td>Энергия за рабочий ход</td><td id="r_w"></td></tr>
+<tr><td>Средний момент</td><td id="r_t"></td></tr>
+<tr><td>Мощность на валу</td><td id="r_p"></td></tr>
+<tr><td>Размах пульсаций момента</td><td id="r_rip"></td></tr>
+<tr><td>Пиковый ток фазы</td><td id="r_ipk"></td></tr>
+<tr><td>Действующий ток фазы</td><td id="r_irms"></td></tr>
+</table>
+<div class="task"><span class="st">Инженерная задача.</span> При 1500 об/мин получить средний момент не менее 22 Н·м при пиковом токе не более 21 А и действующем токе не более 12,5 А. <div id="task" class="st"></div></div>
+</div>
+<div class="plots">
+<div><canvas id="loop"></canvas></div>
+<div><canvas id="curr"></canvas></div>
+<div class="wide"><canvas id="torq"></canvas></div>
+</div>
+</div>
+<p class="note">Учебная аналитическая модель трехфазного ВИД 6/4 с несимметричными мостами: Lрасс = 12 мГн, Lсогл = 120 мГн (при малом токе), насыщение магнитопровода учтено, R = 0,6 Ом, Udc = 540 В. Момент вычисляется через коэнергию. Параметры иллюстративные. Расчет выполняется в браузере при постоянной скорости; отображается установившийся электрический период. Та же модель на Python используется в лабораторных работах.</p>
+</main>
+<script>
+(function(){
+const P={Nr:4,m:3,Lu:0.012,La:0.120,pm:1.1,R:0.6,U:540,p:2.0};P.k=(P.La-P.Lu)/P.pm;
+const TWO=2*Math.PI;
+function g(th){const s=0.5*(1-Math.cos(th)),a=Math.pow(s,P.p),b=Math.pow(1-s,P.p);return a/(a+b);}
+function dg(th){let s=0.5*(1-Math.cos(th));s=Math.min(Math.max(s,1e-12),1-1e-12);const a=Math.pow(s,P.p),b=Math.pow(1-s,P.p);return P.p*Math.pow(s,P.p-1)*Math.pow(1-s,P.p-1)/((a+b)*(a+b))*0.5*Math.sin(th);}
+function psi(th,i){return P.Lu*i+P.pm*g(th)*(1-Math.exp(-P.k*i));}
+function dpsi(th,i){return P.Lu+P.pm*g(th)*P.k*Math.exp(-P.k*i);}
+function torque(th,i){i=Math.max(i,0);return P.Nr*P.pm*dg(th)*(i-(1-Math.exp(-P.k*i))/P.k);}
+function cur(th,ps,i0){ps=Math.max(ps,0);let i=Math.max(i0,0);for(let n=0;n<5;n++){i=Math.max(i-(psi(th,i)-ps)/dpsi(th,i),0);}return i;}
+function inwin(th,on,off){const a=((th-on)%TWO+TWO)%TWO,b=((off-on)%TWO+TWO)%TWO;return a<b;}
+function sim(rpm,on,off,iref,band,soft){
+  const w=rpm*TWO/60,Tel=TWO/(P.Nr*w),dt=Math.min(5e-6,Tel/4000),n=Math.round(2*Tel/dt),n0=Math.floor(n/2);
+  const stroke=TWO/(P.m*P.Nr);const ps=[0,0,0],ii=[0,0,0],vv=[0,0,0];
+  const out={t:[],i:[[],[],[]],psi:[],T:[],W:0,dt:dt,w:w};
+  for(let k=0;k<n;k++){
+    const thm=w*k*dt;let Te=0;
+    for(let p=0;p<3;p++){
+      const th=((P.Nr*(thm-p*stroke))%TWO+TWO)%TWO;
+      if(inwin(th,on,off)){ if(ii[p]>iref+band) vv[p]=soft?0:-P.U; else if(ii[p]<iref-band) vv[p]=P.U; }
+      else vv[p]=ii[p]>1e-3?-P.U:0;
+      ps[p]=Math.max(ps[p]+(vv[p]-P.R*ii[p])*dt,0);
+      ii[p]=cur(th,ps[p],ii[p]);
+      Te+=torque(th,ii[p]);
+      if(k>=n0){ if(p===0){out.psi.push(ps[0]);out.W+=(vv[0]*ii[0]-P.R*ii[0]*ii[0])*dt;} }
+    }
+    if(k>=n0){out.t.push((k-n0)*dt);for(let p=0;p<3;p++)out.i[p].push(ii[p]);out.T.push(Te);}
+  }
+  return out;
+}
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+function plot(id,series,opt){
+  const c=document.getElementById(id),dpr=window.devicePixelRatio||1,W=c.clientWidth,H=c.clientHeight;
+  c.width=W*dpr;c.height=H*dpr;const x=c.getContext('2d');x.scale(dpr,dpr);
+  const L=48,R=12,T=26,B=36,pw=W-L-R,ph=H-T-B;
+  x.fillStyle=css('--bg');x.fillRect(0,0,W,H);
+  const [x0,x1]=opt.xr,[y0,y1]=opt.yr;const X=v=>L+(v-x0)/(x1-x0)*pw,Y=v=>T+ph-(v-y0)/(y1-y0)*ph;
+  x.strokeStyle=css('--grid');x.fillStyle=css('--mut');x.font='11px sans-serif';x.lineWidth=1;
+  for(let j=0;j<=5;j++){const yv=y0+(y1-y0)*j/5,xv=x0+(x1-x0)*j/5;
+    x.beginPath();x.moveTo(L,Y(yv));x.lineTo(L+pw,Y(yv));x.stroke();x.textAlign='right';x.fillText(+yv.toFixed(2),L-5,Y(yv)+4);
+    x.beginPath();x.moveTo(X(xv),T);x.lineTo(X(xv),T+ph);x.stroke();x.textAlign='center';x.fillText(+xv.toFixed(1),X(xv),T+ph+14);}
+  x.fillStyle=css('--fg');x.textAlign='left';x.font='600 12px sans-serif';x.fillText(opt.title,L,16);
+  x.font='11px sans-serif';x.fillStyle=css('--mut');x.textAlign='center';x.fillText(opt.xl,L+pw/2,H-4);
+  x.save();x.translate(12,T+ph/2);x.rotate(-Math.PI/2);x.fillText(opt.yl,0,0);x.restore();
+  x.save();x.beginPath();x.rect(L,T,pw,ph);x.clip();
+  for(const s of series){
+    x.beginPath();for(let j=0;j<s.x.length;j++){const px=X(s.x[j]),py=Y(s.y[j]);j?x.lineTo(px,py):x.moveTo(px,py);}
+    if(s.fill){x.globalAlpha=0.18;x.fillStyle=css(s.c);x.fill();x.globalAlpha=1;}
+    x.strokeStyle=css(s.c);x.lineWidth=s.w||1.3;x.setLineDash(s.dash||[]);x.stroke();x.setLineDash([]);
+  }
+  x.restore();
+}
+const ids=['rpm','on','off','iref','band','soft'];let timer=null;
+function run(){
+  const v=Object.fromEntries(ids.map(k=>[k,+document.getElementById(k).value]));
+  document.getElementById('v_rpm').textContent=v.rpm;document.getElementById('v_on').textContent=v.on;
+  document.getElementById('v_off').textContent=v.off;document.getElementById('v_iref').textContent=v.iref;
+  document.getElementById('v_band').textContent=v.band.toFixed(1);
+  const d2r=Math.PI/180;const r=sim(v.rpm,v.on*d2r,v.off*d2r,v.iref,v.band,v.soft===1);
+  const N=r.t.length,step=Math.max(1,Math.floor(N/1500));const sub=a=>a.filter((_,j)=>j%step===0);
+  const tt=sub(r.t).map(z=>z*1e3),i0=sub(r.i[0]);
+  let ipk=0,i2=0;for(const z of r.i[0]){ipk=Math.max(ipk,z);i2+=z*z;}const irms=Math.sqrt(i2/N);
+  let tm=0,tmax=-1e9,tmin=1e9;for(const z of r.T){tm+=z;tmax=Math.max(tmax,z);tmin=Math.min(tmin,z);}tm/=N;
+  const ax=[],au=[],aa=[];const imax=Math.max(30,ipk*1.05);for(let j=0;j<=60;j++){const q=imax*j/60;ax.push(q);au.push(psi(0,q));aa.push(psi(Math.PI,q));}
+  plot('loop',[{x:ax,y:aa,c:'--mut',dash:[4,4],w:1},{x:ax,y:au,c:'--mut',dash:[4,4],w:1},{x:i0,y:sub(r.psi),c:'--c1',fill:true}],
+    {xr:[0,imax],yr:[0,1.6],title:'Траектория фазы A на плоскости ψ(i)',xl:'ток, А',yl:'ψ, Вб'});
+  const ymax=Math.max(5,Math.ceil(ipk*1.1));
+  plot('curr',[{x:tt,y:sub(r.i[0]),c:'--c1'},{x:tt,y:sub(r.i[1]),c:'--c2'},{x:tt,y:sub(r.i[2]),c:'--c3'}],
+    {xr:[0,tt[tt.length-1]],yr:[0,ymax],title:'Токи фаз A, B, C за электрический период',xl:'время, мс',yl:'ток, А'});
+  const tmx=Math.max(5,Math.ceil(tmax*1.1)),tmn=Math.min(0,Math.floor(tmin*1.1));
+  plot('torq',[{x:tt,y:sub(r.T),c:'--fg',w:1},{x:[0,tt[tt.length-1]],y:[tm,tm],c:'--c2',dash:[5,4]}],
+    {xr:[0,tt[tt.length-1]],yr:[tmn,tmx],title:'Суммарный момент; пунктир — среднее значение',xl:'время, мс',yl:'момент, Н·м'});
+  document.getElementById('r_w').textContent=r.W.toFixed(2)+' Дж';
+  document.getElementById('r_t').textContent=tm.toFixed(2)+' Н·м';
+  document.getElementById('r_p').textContent=(tm*r.w/1000).toFixed(2)+' кВт';
+  document.getElementById('r_rip').textContent=(Math.abs(tm)>0.2?((tmax-tmin)/Math.abs(tm)*100).toFixed(0)+' %':'—');
+  document.getElementById('r_ipk').textContent=ipk.toFixed(1)+' А';
+  document.getElementById('r_irms').textContent=irms.toFixed(2)+' А';
+  const t=document.getElementById('task');
+  const okT=v.rpm===1500&&tm>=22&&ipk<=21&&irms<=12.5;
+  t.className='st '+(okT?'ok':'bad');
+  t.textContent=v.rpm!==1500?'Установите скорость 1500 об/мин.':(okT?'Условия выполнены. Объясните, почему выбранные углы работают.':'Пока не выполнено: момент '+tm.toFixed(1)+' Н·м, пик '+ipk.toFixed(1)+' А, действ. '+irms.toFixed(1)+' А.');
+}
+ids.forEach(k=>document.getElementById(k).addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(run,60);}));
+window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTimeout(run,100);});
+run();
+})();
+</script>
+</body>
+</html>

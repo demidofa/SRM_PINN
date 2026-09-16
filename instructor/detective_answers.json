@@ -1,0 +1,26 @@
+{
+ "case_01.csv": {
+  "fault": "open_phase",
+  "phase": "C"
+ },
+ "case_02.csv": {
+  "fault": "turn_fault",
+  "phase": "B"
+ },
+ "case_03.csv": {
+  "fault": "encoder_offset",
+  "phase": null
+ },
+ "case_04.csv": {
+  "fault": "current_offset",
+  "phase": "B"
+ },
+ "case_05.csv": {
+  "fault": "high_resistance",
+  "phase": "A"
+ },
+ "case_06.csv": {
+  "fault": "healthy",
+  "phase": null
+ }
+}

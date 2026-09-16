@@ -1,0 +1,8 @@
+{
+ "theta_on_deg": 10,
+ "theta_off_deg": 150,
+ "i_ref": 15,
+ "band": 0.8,
+ "soft": true,
+ "T_from_W": 15.515452564993248
+}

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Тренажер: адаптация модели ВИД при управлении с прогнозированием</title>
+<style>
+:root{--bg:#ffffff;--fg:#1c1c1c;--mut:#5f6368;--line:#d7dbe0;--card:#f5f7fa;--c1:#1f4e79;--c2:#c0504d;--c3:#4f8a3c;--grid:#e6e9ee}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15181c;--fg:#e8eaed;--mut:#9aa0a6;--line:#3a3f45;--card:#1e2227;--c1:#7fb0e0;--c2:#e8908c;--c3:#8fcf7a;--grid:#2a2f35}}
+:root[data-theme="dark"]{--bg:#15181c;--fg:#e8eaed;--mut:#9aa0a6;--line:#3a3f45;--card:#1e2227;--c1:#7fb0e0;--c2:#e8908c;--c3:#8fcf7a;--grid:#2a2f35}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 "Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.35rem;margin:0 0 4px}
+.sub{color:var(--mut);margin:0 0 18px;max-width:860px}
+.grid{display:grid;grid-template-columns:300px 1fr;gap:18px}
+@media (max-width:820px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;align-self:start}
+label{display:block;font-size:.88rem;margin:10px 0 2px}
+label b{float:right;font-weight:600}
+input[type=range]{width:100%}
+.plots{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-content:start}
+@media (max-width:620px){.plots{grid-template-columns:1fr}}
+canvas{width:100%;height:260px;display:block;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+.wide{grid-column:1/-1}
+button{margin:12px 6px 0 0;padding:6px 14px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:inherit;cursor:pointer}
+table{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:12px}
+td{padding:3px 0;border-bottom:1px solid var(--line)}td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+.note{color:var(--mut);font-size:.82rem;margin-top:14px}
+</style>
+</head>
+<body>
+<main>
+<h1>Адаптация модели двигателя при управлении с прогнозированием</h1>
+<p class="sub">Регулятор тока рассчитывает напряжение по табличной поверхности намагничивания. Таблица в начале построена с ошибкой, поэтому ток не достигает задания. Коррекция узлов таблицы по ошибке тока в процессе работы постепенно устраняет расхождение. Выберите коэффициент коррекции и наблюдайте сходимость по электрическим периодам.</p>
+<div class="grid">
+<div class="card">
+<label>Ошибка индуктивности в согласованном положении, % <b id="v_err"></b></label><input id="err" type="range" min="-30" max="30" step="5" value="-20">
+<label>Коэффициент коррекции k, ×10⁻⁴ <b id="v_k"></b></label><input id="k" type="range" min="0" max="50" step="0.5" value="10">
+<label>Задание тока, А <b id="v_iref"></b></label><input id="iref" type="range" min="4" max="20" step="1" value="12">
+<label>Скорость, об/мин <b id="v_rpm"></b></label><input id="rpm" type="range" min="100" max="900" step="50" value="300">
+<button id="run">Пуск</button><button id="reset">Сброс</button>
+<table>
+<tr><td>Электрический период</td><td id="r_n">0</td></tr>
+<tr><td>СКО тока в текущем периоде</td><td id="r_e">—</td></tr>
+<tr><td>СКО тока в первом периоде</td><td id="r_e0">—</td></tr>
+<tr><td>Скорректировано узлов таблицы</td><td id="r_nodes">0</td></tr>
+</table>
+<p class="note">Изменение параметров сбрасывает таблицу. Слишком малый k дает медленную сходимость, слишком большой — колебания узлов и рост установившейся ошибки.</p>
+</div>
+<div class="plots">
+<div><canvas id="cur"></canvas></div>
+<div><canvas id="conv"></canvas></div>
+<div class="wide"><canvas id="map"></canvas></div>
+</div>
+</div>
+<p class="note">Модель: трехфазный ВИД 6/4 (учебная аналитическая модель дисциплины), фаза A, несимметричный мост, Udc = 540 В, R = 0,6 Ом, период работы регулятора 100 мкс, углы включения и отключения 20 и 150 эл. град. Регулятор: u = (Ψ(θ следующий, i зад) − ψ оценка)/Ts + R·i, где ψ оценка получена интегрированием напряжения. Таблица 36 × 21 узел, коррекция ближайшего узла при нормированном квадрате расстояния меньше 0,25 (учебник, гл. 4). Та же модель на Python — файл srm_adapt.py.</p>
+</main>
+<script>
+(function(){
+const TWO=2*Math.PI;
+function Motor(La){const m={Nr:4,Lu:0.012,La:La,pm:1.1,R:0.6,U:540,p:2.0};m.k=(m.La-m.Lu)/m.pm;return m;}
+function g(m,th){const s=0.5*(1-Math.cos(th)),a=Math.pow(s,m.p),b=Math.pow(1-s,m.p);return a/(a+b);}
+function psi(m,th,i){return m.Lu*i+m.pm*g(m,th)*(1-Math.exp(-m.k*i));}
+function dpsi(m,th,i){return m.Lu+m.pm*g(m,th)*m.k*Math.exp(-m.k*i);}
+function cur(m,th,ps,i0){ps=Math.max(ps,0);let i=Math.max(i0,0);for(let n=0;n<5;n++)i=Math.max(i-(psi(m,th,i)-ps)/dpsi(m,th,i),0);return i;}
+const NT=36,NI=21,IMAX=30,DTH=TWO/NT,DI=IMAX/(NI-1);
+function makeTable(m){const P=new Float64Array(NT*NI);for(let a=0;a<NT;a++)for(let b=0;b<NI;b++)P[a*NI+b]=psi(m,a*DTH,b*DI);return P;}
+function tab(P,th,i){let x=((th%TWO)+TWO)%TWO/DTH,y=Math.min(Math.max(i,0),IMAX-1e-9)/DI;const x0=Math.floor(x),y0=Math.floor(y),fx=x-x0,fy=y-y0,x1=(x0+1)%NT,y1=Math.min(y0+1,NI-1);
+ return (1-fx)*(1-fy)*P[x0*NI+y0]+fx*(1-fy)*P[x1*NI+y0]+(1-fx)*fy*P[x0*NI+y1]+fx*fy*P[x1*NI+y1];}
+function correct(P,th,iref,e,k,touched){const x=((th%TWO)+TWO)%TWO/DTH,y=Math.min(iref,IMAX-1e-9)/DI;
+ for(const xn of [Math.floor(x),Math.ceil(x)])for(const yn of [Math.floor(y),Math.ceil(y)]){const d2=(xn-x)*(xn-x)+(yn-y)*(yn-y);
+  if(d2<0.25&&yn>=0&&yn<NI){const id=(xn%NT)*NI+yn;P[id]+=k*e;touched.add(id);}}}
+const el=id=>document.getElementById(id);
+let S=null,timer=null;
+function init(){
+  const v={err:+el('err').value,k:+el('k').value,iref:+el('iref').value,rpm:+el('rpm').value};
+  el('v_err').textContent=v.err;el('v_k').textContent=v.k.toFixed(1);el('v_iref').textContent=v.iref;el('v_rpm').textContent=v.rpm;
+  const mot=Motor(0.120),cm=Motor(0.012+(1+v.err/100)*(0.120-0.012));
+  S={v:v,mot:mot,P:makeTable(cm),Ptrue:makeTable(mot),psi:0,ph:0,i:0,thm:0,n:0,hist:[],last:null,prev:null,touched:new Set()};
+  draw();
+}
+function period(){
+  const m=S.mot,v=S.v,Ts=1e-4,sub=10,dt=Ts/sub,w=v.rpm*TWO/60,Tel=TWO/(m.Nr*w),N=Math.round(Tel/Ts);
+  const on=20*Math.PI/180,off=150*Math.PI/180,k=v.k*1e-4;let se=0,cn=0;const tr=[];
+  for(let q=0;q<N;q++){
+    const th=((m.Nr*S.thm)%TWO+TWO)%TWO;const act=((th-on)%TWO+TWO)%TWO<(off-on);let u;
+    if(act){u=(tab(S.P,th+m.Nr*w*Ts,v.iref)-S.ph)/Ts+m.R*S.i;u=Math.max(-m.U,Math.min(m.U,u));
+      if(k>0&&S.i>0.5*v.iref)correct(S.P,th,v.iref,v.iref-S.i,k,S.touched);
+      if(S.i>0.8*v.iref){se+=(v.iref-S.i)*(v.iref-S.i);cn++;}}
+    else u=S.i>1e-3?-m.U:0;
+    S.ph=Math.max(S.ph+(u-m.R*S.i)*Ts,0);if(!act&&S.i<=1e-3)S.ph=0;
+    tr.push([q*Ts*1e3,S.i]);
+    for(let s=0;s<sub;s++){S.psi=Math.max(S.psi+(u-m.R*S.i)*dt,0);S.thm+=w*dt;S.i=cur(m,((m.Nr*S.thm)%TWO+TWO)%TWO,S.psi,S.i);}
+  }
+  S.n++;S.prev=S.last;S.last=tr;S.hist.push(Math.sqrt(se/Math.max(cn,1)));
+}
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+function frame(id,opt){const c=el(id),dpr=window.devicePixelRatio||1,W=c.clientWidth,H=c.clientHeight;c.width=W*dpr;c.height=H*dpr;
+ const x=c.getContext('2d');x.scale(dpr,dpr);const L=48,R=12,T=26,B=36,pw=W-L-R,ph=H-T-B;x.fillStyle=css('--bg');x.fillRect(0,0,W,H);
+ const X=q=>L+(q-opt.xr[0])/(opt.xr[1]-opt.xr[0])*pw,Y=q=>T+ph-(q-opt.yr[0])/(opt.yr[1]-opt.yr[0])*ph;
+ x.fillStyle=css('--fg');x.font='600 12px sans-serif';x.textAlign='left';x.fillText(opt.title,L,16);
+ x.font='11px sans-serif';x.fillStyle=css('--mut');x.textAlign='center';x.fillText(opt.xl,L+pw/2,H-4);
+ x.save();x.translate(12,T+ph/2);x.rotate(-Math.PI/2);x.fillText(opt.yl,0,0);x.restore();
+ if(!opt.nogrid){x.strokeStyle=css('--grid');for(let j=0;j<=5;j++){const yv=opt.yr[0]+(opt.yr[1]-opt.yr[0])*j/5,xv=opt.xr[0]+(opt.xr[1]-opt.xr[0])*j/5;
+  x.beginPath();x.moveTo(L,Y(yv));x.lineTo(L+pw,Y(yv));x.stroke();x.textAlign='right';x.fillText(+yv.toFixed(2),L-5,Y(yv)+4);
+  x.beginPath();x.moveTo(X(xv),T);x.lineTo(X(xv),T+ph);x.stroke();x.textAlign='center';x.fillText(+xv.toFixed(1),X(xv),T+ph+14);}}
+ return {x,X,Y,L,T,pw,ph};}
+function line(f,pts,col,w,dash){const x=f.x;x.save();x.beginPath();x.rect(f.L,f.T,f.pw,f.ph);x.clip();x.beginPath();
+ pts.forEach((p,j)=>{const a=f.X(p[0]),b=f.Y(p[1]);j?x.lineTo(a,b):x.moveTo(a,b);});x.strokeStyle=css(col);x.lineWidth=w||1.3;x.setLineDash(dash||[]);x.stroke();x.restore();}
+function draw(){
+  const v=S.v,tmax=S.last?S.last[S.last.length-1][0]:1;
+  const f1=frame('cur',{xr:[0,tmax*0.55],yr:[0,v.iref*1.35],title:'Ток фазы A: текущий и предыдущий периоды',xl:'время от начала периода, мс',yl:'ток, А'});
+  line(f1,[[0,v.iref],[tmax,v.iref]],'--mut',1,[5,4]);
+  if(S.prev)line(f1,S.prev,'--c2',1);if(S.last)line(f1,S.last,'--c1',1.4);
+  const nmax=Math.max(10,S.hist.length),emax=Math.max(0.5,...S.hist,0)*1.1;
+  const f2=frame('conv',{xr:[0,nmax],yr:[0,emax],title:'Сходимость: СКО тока по периодам',xl:'номер периода',yl:'СКО, А'});
+  line(f2,S.hist.map((e,j)=>[j+1,e]),'--c1',1.6);
+  // карта относительной ошибки таблицы
+  const f3=frame('map',{xr:[0,360],yr:[0,IMAX],title:'Относительная ошибка таблицы (Ψ таблица − Ψ факт)/Ψ факт: синий — занижено, красный — завышено',xl:'электрический угол, град',yl:'ток, А',nogrid:true});
+  const x=f3.x,cw=f3.pw/NT,chh=f3.ph/(NI-1);
+  for(let a=0;a<NT;a++)for(let b=1;b<NI;b++){const id=a*NI+b,t=S.Ptrue[id],r=Math.max(-0.3,Math.min(0.3,(S.P[id]-t)/t))/0.3;
+    const c=r<0?[31,78,121]:[192,80,77],al=Math.abs(r);x.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${al.toFixed(3)})`;
+    x.fillRect(f3.L+a*cw,f3.T+f3.ph-(b)*chh-chh/2,cw+0.5,chh+0.5);}
+  x.strokeStyle=css('--fg');x.setLineDash([5,4]);x.beginPath();x.moveTo(f3.L,f3.Y(v.iref));x.lineTo(f3.L+f3.pw,f3.Y(v.iref));x.stroke();x.setLineDash([]);
+  x.fillStyle=css('--mut');x.textAlign='center';for(let d=0;d<=360;d+=60)x.fillText(d,f3.X(d),f3.T+f3.ph+14);
+  x.textAlign='right';for(let q=0;q<=30;q+=10)x.fillText(q,f3.L-5,f3.Y(q)+4);
+  el('r_n').textContent=S.n;el('r_e').textContent=S.hist.length?S.hist[S.hist.length-1].toFixed(3)+' А':'—';
+  el('r_e0').textContent=S.hist.length?S.hist[0].toFixed(3)+' А':'—';el('r_nodes').textContent=S.touched.size;
+}
+function tick(){period();draw();if(S.n>=200){stop();}}
+function stop(){clearInterval(timer);timer=null;el('run').textContent='Пуск';}
+el('run').onclick=()=>{if(timer){stop();}else{timer=setInterval(tick,120);el('run').textContent='Пауза';}};
+el('reset').onclick=()=>{stop();init();};
+['err','k','iref','rpm'].forEach(id=>el(id).addEventListener('input',()=>{stop();init();}));
+window.addEventListener('resize',()=>{if(S)draw();});
+init();
+})();
+</script>
+</body>
+</html>

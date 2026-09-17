@@ -1,7 +1,9 @@
 # Открытые цифровые материалы дисциплины «Электромоторы»
 
 Тренажеры в браузере: https://demidofa.github.io/SRM_PINN/
+
 https://demidofa.github.io/SRM_PINN/trainers/trainer_adaptation.html
+
 https://demidofa.github.io/SRM_PINN/trainers/trainer_energy_loop.html
 
 Сквозной объект изучения: вентильно-индукторный электропривод (ВИП). Материалы согласованы с учебником
